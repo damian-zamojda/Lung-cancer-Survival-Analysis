@@ -1,0 +1,381 @@
+---
+title: "Lung cancer Survival Analysis and Survival Models comparison"
+author: 
+  - "Damian Żamojda 386905"
+  - "Karolina Szczęsna 415989" 
+  - "Rafał Rysiejko 423827" 
+date: "5/23/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE,warning=FALSE,message=FALSE}
+packages_vector <- c(
+"survival", "survminer", "tidyverse", "devtools", "eha", "ggplot2", "waffle", "hrbrthemes")
+
+package.check <- lapply(packages_vector, FUN = function(x) {
+  if(!require(x, character.only = TRUE)) {
+    install.packages(x, dependencies = TRUE)
+  }
+})
+```
+
+# Libraries
+
+```{r warning=FALSE,message=FALSE}
+library(survival)
+library(survminer)
+library(tidyverse)
+library(devtools)
+library(eha)
+library(ggplot2)
+library(waffle)
+library(hrbrthemes)
+```
+
+# Methodology
+
+Our research aims at patients’ lung cancer survival analysis from North Central Cancer Treatment Group. In the analysis we did a detailed research on the variables that determine whether patients get over a disease or surrender in a certain duration time. Thus we used a  non-parametric statistic estimator to create a Kaplan-Meier Survival model to measure the survival function from lifetime duration data. We conducted the comparison of both ECOG and Karnofsky Performance Score indicators and designed the formula of lung cancer survival where time is a dependent variable. The parametric models we used have varied distributions and are as follows: Weibull Model, Gompertz Model, Lognormal Model and Extreme Values.
+
+
+# EDA
+## Data Description
+
+In order to provide the model, a summary of the lung cancer data is required. The dataset consists of 167 observations and 10 variables. The variables descriptions are as follows:
+
+* inst -  Institution code, where a patient was assigned 
+* time - survival time of a patient in days 
+* status - censoring status, where 1=censored, 2=dead 
+* age - patient’s age in years 
+* sex: - patient’s gender, where Male=0 Female=1
+* ph.ecog - ECOG performance score, which indicates the the patient’s performance status on general well-being with cancer, where
+  + 0= Asymptomatic
+  + 1= Symptomatic but completely ambulatory
+  + 2= Symptomatic, <50% in bed during the day
+  + 3= Symptomatic, >50% in bed, but not bedbound
+  + 4= Bed Bound 
+  + 5= Death
+* ph.karno - Karnofsky performance score rated by physician, which indicates a detailed classification of general status and quality of life while having cancer, scale has a range from 100 to 0, where 100  = perfect state, 0 = death. 
+* pat.karno - Karnofsky performance score as rated by patient, same range as above
+* meal.cal - calories consumed at meals daily by a patient (in kcal)
+* wt.loss - patient’s weight loss in last six months (in kg)
+
+## Summary Statistics
+
+Regarding the time variable, the number of days survived after the lung cancer diagnosis differs a lot for all the patients. The minimum value shows only 5 days, whereas the maximum value - 1022 days. On average, patients maintained 309 days, which is around 10 months in a disease. 
+
+The age of patients concerns a wider range as well .The youngest patient with lung cancer had 39 years, while the oldest patient was 82 years old. The mean shows that 62 years is approximately an average age of a patient.
+
+Both ECOG and Karnofsky performance scores outcomes describe the patients similarly. 
+*ECOG performance score rated by psychician indicates that the minimum value is 0 and the average nearly 1, which results in the patient's ability in everyday activities and not significant cancer symptoms. The maximum value on the scale was 3, which means a patient is limited by his inability and spends >50% in bed.
+*On the other hand, Karnofsky performance score as rated by patient and physician illustrate almost the same conclusions. Both patients’ and physicians' perspectives are nearly the same, the only difference is visible in the minimum value (50.00, 30.00 respectively, which is a serious inability needing hospitality). The average result is around 80.00 - symptoms visible on everyday basis but not harmful, and the maximum value is 100 - correct performance status, which are aligned with ECOG.
+
+Calories consumed at meals by a patient range from only 96 kcal per day to a standard demand in a healthy person, which is 2600 kcal per day. Surprisingly, the mean value shows that on average 929.1 kcal is consumed daily.
+
+Lastly, patient’s weight fluctuations in the last six months illustrate that not only a loss, but also w gain of kilograms was observed. The maximum loss weight was -24 kg (min value), whereas the maximum gain was 68 kg. On average a gain of 9.7 kg was noticed.
+
+```{r echo=FALSE, warning=FALSE, message=FALSE}
+# Loading raw data
+data_raw <- read.csv("https://www.key2stats.com/NCCTG_Lung_Cancer_Data_535_29.csv", stringsAsFactors = T)
+
+head(data_raw)
+
+# Deselecting redundant columns, changing depended variable to binary form, changing sex to binary 
+data <- data_raw %>% select(3:12) %>% mutate(status = ifelse(.$status==1,0,1),
+                                             sex = ifelse(.$sex==1,0,1)) #Male=1, Female=2
+
+summary(data)
+
+```
+
+
+## Visualization
+
+The histograms below show the distribution of observation in all numeric variables. Horizontal axis represents the values of observations, while the vertical axis “count” shows the amount of certain observations for each value.
+
+Time histogram illustrates positive skew distribution. The right tailor indicates that the majority of observations are concentrated in a short time period - (0,500) days.
+
+Meal.cal histogram represents positive skewness with the most visible increase around 1000 kcal consumed by a patient a day. It shows that patients rather refuse to fulfill daily demand for calories.
+
+Wt.loss histogram illustrates the positive skewed distribution as well, where patient’s weight loss in the last six months fluctuates around (0,25) kilogram change in weight. The loss of kilograms is rather not observable.
+As for the censoring status, the histogram shows the frequency of each value, with the majority of patients being censored=1. 
+ 
+Age histogram represents the negative skew distribution. It is left-tailored, which states that the dataset is focused one the right side, thus older patients aged around (60,80) years old. The visualisation of the dependent variable is shown on a boxplot. The upper whisker reaches 82 years and the lower whisker 39 years, as mentioned before. The box plot is comparatively short which suggests that overall patients have a high level of common characteristics with each other. 
+
+```{r echo=FALSE, warning=FALSE, message=FALSE}
+# Histogram of all numeric variables
+
+data %>%
+  keep(is.numeric) %>% 
+  gather() %>% 
+  ggplot(aes(value)) +
+  facet_wrap(~ key, scales = "free") +
+  geom_histogram()
+
+
+# Represent it
+data$ph.ecog <- as.factor(data$ph.ecog)
+
+ggplot(data=data, aes(x=age, group=sex, fill=sex)) +
+  geom_density(adjust=1.5, alpha=.4) +
+  ggtitle("Density Plot of Age")
+```
+
+ECOG performance score histogram is positively skewed and captures only 0,1,2,3 values from the scale. Focus on the left side of the histogram shows that the majority of patients do not suffer from life burden as a result of diagnosed lung cancer.
+
+Same analogy can be observed in Karnofsky performance score histograms rated by patient and by psychican. Only a few extreme values on the left tailor up to 60.00 are visible and the negative skew displays the majority of patients not suffering from life burden as a result of diagnosed lung cancer.
+
+Gender histogram of a dummy variable describes the dataset consisting mainly of male lung cancer cases (Male=0). Sex geometric density is also displayed on a plot below, which show the occurance of lung cancer among females and males. Whereas in females the distribution is almost symmetrical with median around the age of 60, for males the density is higher and the peak is observed in range (65,70) years old.
+
+
+# Kaplan-Meier Survival Model
+
+In order to compare the lung cancer survival among patients, the analysis of the models has to be made.
+The Kaplan–Meier estimator, known as the product limit estimation, is a non-parametric statistic used to estimate the survival function from lifetime duration data. We used it in order to measure the fraction of patients living for a certain amount of time after lung cancer diagnosis and treatment.
+
+Horizontal axis displays the number of days survived by a patient, whereas the vertical axis illustrates the survival probability of a patient or the proportion of people surviving. A vertical drop in the curves indicates an event. The vertical tick mark on the curves means that a patient was censored at this time. Confidence interval is 5%.
+
+```{r echo = FALSE, warning=FALSE, message=FALSE}
+# Kaplan-Meier survival estimates
+
+fit <- survfit(Surv(time, status) ~ sex, data = data)
+# Access to the sort summary table
+summary(fit)$table
+
+ggsurvplot(fit, data = data,
+ surv.median.line = "hv", # Add medians survival
+
+ # Change legends: title & labels
+ legend.title = "Sex",
+ legend.labs = c("Male", "Female"),
+ # Add p-value and tervals
+ pval = TRUE,
+
+ conf.int = TRUE,
+ # Add risk table
+ risk.table = TRUE,
+ tables.height = 0.2,
+ tables.theme = theme_cleantable(),
+
+ # Color palettes. Use custom color: c("#E7B800", "#2E9FDF"),
+ # or brewer color (e.g.: "Dark2"), or ggsci color (e.g.: "jco")
+ palette = "#Dark2",
+ ggtheme = theme_bw(), # Change ggplot2 theme
+ font.main = c(14, "bold", "darkblue"),
+ font.x = c(12, "bold.italic", "darkblue"),
+ font.y = c(12, "bold.italic", "darkblue"),
+ font.tickslab = c(10, "plain", "darkgreen")
+)
+```
+
+* At time = 0, the survival probability is 1.0 (or 100% of the participants are alive).
+* At time= 250, the survival probability is 0.75, so 75% for male and 0.55, so 55% of female
+* The survival probability steadily drops heading to 0 for female right before 1000 days and only 1 male patient at that duration time
+* The median survival presented in the table equals approximately 284 days for males and 426 days for females, suggesting a good survival for sex=1 compared to sex=0. There appears to be a survival advantage for females with lung cancer compared to males.
+
+
+### Karnofsky performance score 
+
+Firstly, we will analyze the outcomes of the Karnofsky performance score indicator of a patient's general status.
+
+```{r echo = FALSE, warning=FALSE, message=FALSE}
+data %>% group_by(sex, ph.ecog) %>% summarise(Freq = n(),
+                                              MeanPH = mean(ph.karno),
+                                              MeanPAT = mean(pat.karno)) %>% data_frame() -> lolipop_data
+
+lolipop_data$Cat <- paste(lolipop_data$sex,lolipop_data$ph.ecog)
+
+ggplot(lolipop_data) +
+  geom_segment( aes(x=Cat, xend=Cat, y=MeanPH, yend=MeanPAT), color="grey") +
+  geom_point( aes(x=Cat, y=MeanPH), color=rgb(0.2,0.7,0.1,0.5), size=3 ) +
+  geom_point( aes(x=Cat, y=MeanPAT), color=rgb(0.7,0.2,0.1,0.5), size=3 ) +
+  coord_flip()+
+  theme_ipsum() +
+  theme(
+    legend.position = "none",
+  ) +
+  ggtitle("Karnovski score rated by Ph vs Pat") + 
+  xlab("Sex - ECOG") +
+  ylab("Value of Karnofsky performance score ")
+
+```
+```{r echo = FALSE, warning=FALSE, message=FALSE}
+ggplot(data, aes(x=ph.karno, y=pat.karno, color=ph.ecog)) + 
+  geom_point(shape=18)+
+  geom_smooth(method=lm, se=FALSE)+
+  ggtitle("Karnovski score rated by Ph vs Pat with dependance on ECOG") +
+  theme_minimal()
+cor(data$ph.karno, data$pat.karno, method = "pearson")
+
+```
+The plot represents the comparison between the Karnofsky performance score rated by patient on a vertical axis, and by psychican on a horizontal axis corresponding to the ECOG performance score. 
+Out of  four ECOG outcomes, only 0,1,2 are visible on the plot, as the score =3 (Symptomatic, >50% in bed, but not bedbound) does not correspond to any Karnovski interval on the visible plot. This also proves that patients are more detailed but also less strictly assessed by the Karnofsky score.
+* Karnovsky (80,100) corresponds to ECOG = 0, which is an active patient without major inabilities
+* Karnovsky wide (50,100) is summed up into ECOG = 1, which is difficult to evaluate the actual status of a patient, however rather not bed bound, but incapable of working
+* Karnovsky (50,80) corresponds to ECOG = 2, which probably indicates the worst life-being status of all presented here
+
+### ECOG
+
+Secondly, we will analyze the outcomes of the ECOG performance score indicator of a patient's performance status.
+
+```{r}
+#ECOG Performance status:
+#0	Fully active; no performance restrictions.
+#1	Strenuous physical activity restricted; fully ambulatory and able to carry out light work.
+#2	Capable of all self-care but unable to carry out any work activities. Up and about >50% of waking hours.
+#3	Capable of only limited self-care; confined to bed or chair >50% of waking hours.
+#4	Completely disabled; cannot carry out any self-care; totally confined to bed or chair.
+```
+
+```{r echo = FALSE, warning=FALSE, message=FALSE}
+#table(data$ph.ecog)
+df <- expand.grid(y = 1:10, x = 1:10)
+ECOGCats <- c(`Cat0`=47, `Cat1`=81,
+              `Cat2`=38, `Cat3`=1)
+ECOGCats <- round(ECOGCats)* ((10*10.2)/(nrow(data)))
+df$Categories <- factor(rep(names(ECOGCats), ECOGCats))  
+
+ggplot(df, aes(x = x, y = y, fill = Categories)) + 
+  geom_tile(color = "black", size = 0.5) +
+  scale_x_continuous(expand = c(0, 0)) +
+  scale_y_continuous(expand = c(0, 0), trans = 'reverse') +
+  scale_fill_brewer(palette = "Set3") +
+  labs(title="Fiskal Status", subtitle="Distribution among data set population",
+       caption="") + 
+  theme_void() +
+  theme(plot.margin = unit(c(0.2, 0.1, 0.2, .1), units = 'in'))
+```
+
+```{r echo = FALSE, warning=FALSE, message=FALSE}
+data %>% group_by(sex, ph.ecog) %>% summarise(Freq = n()) %>% data_frame() -> bardata
+ggplot(bardata, aes(x = ph.ecog, y = Freq))+
+  geom_bar(
+    aes(fill = ph.ecog), stat = "identity", color = "white",
+    position = position_dodge(0.9)
+    )+
+  facet_wrap(~sex) + 
+  ggtitle("Distribution of ph.ecog") +
+  fill_palette("jco")
+```
+
+The plot illustrates the distribution among the data set population in terms of score assigned. SImilarly as above, only the most frequently chosen scores are displayed, these are: 0,1,2. 59% of patients are assessed as ECOG=1. The histograms below confirm the expansive number of female and male patients numbered 1. Other than that, the are no significant differences between frequencies of score = 0 and score = 2.
+
+```{r echo = FALSE, warning=FALSE, message=FALSE}
+fit <- survfit(Surv(time, status) ~ ph.ecog, data = data)
+# Access to the sort summary table
+summary(fit)$table
+
+ggsurvplot(fit, data = data,
+ surv.median.line = "hv", # Add medians survival
+
+ # Change legends: title & labels
+ legend.title = "ECOG Performance Score",
+ legend.labs = c("ECOG 0", "ECOG 1", "ECOG 2", "ECOG 3"),
+ # Add p-value and tervals
+ pval = TRUE,
+
+ conf.int = TRUE,
+ # Add risk table
+ risk.table = TRUE,
+ tables.height = 0.2,
+ tables.theme = theme_cleantable(),
+
+ # Color palettes. Use custom color: c("#E7B800", "#2E9FDF"),
+ # or brewer color (e.g.: "Dark2"), or ggsci color (e.g.: "jco")
+ palette = "#Dark2",
+ ggtheme = theme_bw(), # Change ggplot2 theme
+ font.main = c(14, "bold", "darkblue"),
+ font.x = c(12, "bold.italic", "darkblue"),
+ font.y = c(12, "bold.italic", "darkblue"),
+ font.tickslab = c(10, "plain", "darkgreen")
+)
+```
+
+Kaplan-Meier Survival estimation is introduced again. Horizontal axis displays the number of days survived by a patient, whereas the vertical axis illustrates the survival probability of a patient or the proportion of people surviving. A vertical drop in the curves indicates an event. The vertical tick mark on the curves means that a patient was censored at this time. Confidence interval is 5%.
+
+* At time = 0, the survival probability is 1.0 (or 100% of the participants are alive).
+* At time = 250 days, the survival probability is 85% for patients scored ECOG =1, 62.% for patients scored ECOG = 2, 37.5% for patients scored ECOG =2, 0% for patient with ECOG =3
+* The survival probability steadily drops heading to 0 for almost all the patients but 1 before 1000 days of time duration.
+
+
+# Models Comparison and Selection
+
+The final part of the report consists of comparison and selection of models as well as main conclusions.
+
+In order to do so, the formula of lung cancer survival has been created, where time is a dependent variable and independent variables are: sex, age, meal.cal, ph.ecog, ph.karno and wt.loss. We use only one Karnovsky variable in the model, thus the one rated by a psychican, which gives a more relevant outcome than the one rated by a patient.
+
+```{r echo=FALSE,warning=FALSE,message=FALSE}
+data$ph.karno <- as.factor(data$ph.karno)
+data$sex <- as.factor(data$sex)
+#data$pat.karno <- as.factor(data$pat.karno) # dont use - strong pos correlation
+```
+
+
+```{r}
+formula <- Surv(time, status) ~ sex + age + meal.cal + ph.ecog +ph.karno + wt.loss
+```
+
+```{r}
+oldpar <- par(mfrow = c(2, 2))
+fit.cr <- coxreg(formula, data = data)
+fit.w <- phreg(formula, data = data)
+fit.g <- phreg(formula, data = data,
+               dist = "gompertz")
+fit.ln <- phreg(formula, data = data,
+                dist = "lognormal")
+fit.ev <- phreg(formula, data = data,
+                dist = "ev")
+check.dist(fit.cr, fit.w, printLegend = FALSE)
+check.dist(fit.cr, fit.g, printLegend = FALSE)
+check.dist(fit.cr, fit.ln, printLegend = FALSE)
+check.dist(fit.cr, fit.ev, printLegend = FALSE)
+
+par(oldpar)
+```
+
+## Models analysis
+
+* Weibull: 
+  + Metric: PH (Hazard model)
+  + Vertical axis: Weibull cumulative probability
+  + Horizontal axis: time duration (in days)
+  + Shape parameter p>1 the hazard is monotonically increasing
+  + Wear-out failures → failure rate that increases with time 
+
+* Gompertz:
+  + Describes human mortality
+  + Vertical axis: Gompertz hazard function
+  + Horizontal axis: time duration (in days)
+  + Positively sloped Gompertz curve
+  + c>0 the Gompertz distribution increases monotonically
+  + Human mortality increases with time duration
+
+* Lognormal
+  + Metric: AFT (Accelerated failure time) model
+  + Vertical axis: Lognormal cumulative hazard function
+  + Horizontal axis: time duration (in days)
+  + Sigma = 0.5
+  + Reliable application
+
+## Weibull Regression Conclusions
+
+Confidence interval is 5%.
+
+```{r}
+fit <- phreg(formula, data = data, dist = "weibull")
+fit
+
+#The p-value of a test gives the probability of observing a test statistic as extreme as the one observed, if the null hypothesis were true. For the Wald test: p = P(|Z| > |Tobs|), where Z ∼ N(0,1) is a standard normal random variable.
+```
+
+The analysis of the coefficients and the p-values show that variables, which are significant are: 
+* sex with p-vale = 0.002,
+* ph.ecog only from the moment of scores equal to 2 (p-value = 0.004 ) and 3 (p-value =  0.037)
+* ph.karno only from the moment of scores equal to: 80 (p-value =  0.031), 90 (p-value =  0.028) and 100 (p-value = 0.048 ).
+
+For the purpose of this research we can sum up, that the age of a patient, calories daily consumed at meals and weight loss are not relevant in terms of  lung cancer survival analysis. 
+
+What actually matters, is the gender of patients suffering from lung cancer. Males survival after the diagnosis and treatment is lower than among females in time duration. 
+
+The most impact on that outcome has an ECOG performance score of 2 and 3, which indicates a patient's performance status on general well-being with cancer on the level of symptomatic, but spending around 50% in bed during the day. Patients assessed by higher scores survive less number of days after the treatment.
+
+As for the Karnofsky performance score rated by physicians, positively interpreted scores, so 80, 90 and 100 are significant. It means that patients who are in a perfect state or suffering from little inability in the job environment, survive a greater number of days after the lung cancer treatment.
