@@ -1,4 +1,4 @@
-# Lung cancer Survival Analysis Models comparison
+# Lung cancer Survival Analysis
 
 Our research aims at patients’ lung cancer survival analysis from North Central Cancer Treatment Group. 
 In the analysis we did a detailed research on the variables that determine whether patients get over a disease or surrender in a certain duration time. 
